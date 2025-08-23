@@ -1,99 +1,66 @@
+# sniffguard/core/scan_networks.py
+
 import subprocess
-from typing import List, Dict, Optional, Tuple
-import scapy.all as scapy
-from utils.status import display_status
+import re
+from utils.logger import log
 
+def parse_iw_scan_output(output):
+    """Parses the output of 'iw dev <interface> scan' to extract network details."""
+    networks = {}
+    current_bssid = None
 
-def get_channel(packet) -> Optional[int]:
+    for line in output.split('\n'):
+        bssid_match = re.search(r"BSS ([\da-fA-F:]{17})\(on", line)
+        if bssid_match:
+            current_bssid = bssid_match.group(1).upper()
+            networks[current_bssid] = {"BSSID": current_bssid, "Security": "Open"} # Default to Open
+            continue
+            
+        if current_bssid:
+            signal_match = re.search(r"signal: (-?\d+\.\d+) dBm", line)
+            if signal_match:
+                networks[current_bssid]['Signal'] = signal_match.group(1)
+            
+            ssid_match = re.search(r"SSID: (.+)", line)
+            if ssid_match:
+                networks[current_bssid]['SSID'] = ssid_match.group(1).strip()
+
+            channel_match = re.search(r"DS Parameter set: channel (\d+)", line)
+            if channel_match:
+                 networks[current_bssid]['Channel'] = channel_match.group(1)
+
+            # More robust security detection
+            if re.search(r"\s+WEP\s+", line):
+                networks[current_bssid]['Security'] = "WEP"
+            elif re.search(r"\s+WPA\s+", line): # Catches WPA, WPA2, WPA3 via RSN/WPA tags
+                 networks[current_bssid]['Security'] = "WPA/WPA2/WPA3"
+                    
+    return list(networks.values())
+
+def scan_networks(interface):
     """
-    Extract the channel number from the packet's Dot11Elt info.
-    The channel is usually encoded in the element with ID 3 (DS Parameter Set).
-    """
-    layers = packet.getlayer(scapy.Dot11Elt)
-    while layers:
-        if layers.ID == 3 and hasattr(layers, "info"):
-            return layers.info[0]  # channel is a single byte
-        layers = layers.payload.getlayer(scapy.Dot11Elt)
-    return None
-
-
-def scan_networks(interface: str, duration: int = 10) -> List[Dict[str, Optional[str]]]:
-    """
-    Scan wireless networks on the specified interface for the given duration.
-
+    Scans for available wireless networks on the specified interface.
+    
     Args:
-        interface (str): Wireless interface name (should be in monitor mode).
-        duration (int): Scan duration in seconds.
+        interface (str): The name of the interface in monitor mode.
 
     Returns:
-        List[Dict[str, Optional[str]]]: List of found APs with SSID, BSSID, Channel, and RSSI.
+        list: A list of dictionaries, each representing a detected network.
     """
-    networks = []
-    seen_bssids = set()
-
-    def packet_handler(packet):
-        if packet.haslayer(scapy.Dot11Beacon):
-            ssid = packet[scapy.Dot11Elt].info.decode(errors="ignore") if packet[scapy.Dot11Elt].info else ""
-            bssid = packet[scapy.Dot11].addr2
-            channel = get_channel(packet)
-            rssi = packet.dBm_AntSignal if hasattr(packet, "dBm_AntSignal") else None
-
-            if bssid not in seen_bssids:
-                seen_bssids.add(bssid)
-                networks.append({
-                    'SSID': ssid,
-                    'BSSID': bssid,
-                    'Channel': channel,
-                    'Signal': rssi,
-                })
-
-    display_status("Scan", f"Starting scan on interface {interface} for {duration}s")
+    log.info(f"Starting network scan on interface '{interface}'.")
     try:
-        scapy.sniff(iface=interface, prn=packet_handler, timeout=duration)
-    except Exception as e:
-        display_status("Scan Error", f"Error during scanning: {str(e)}")
-    display_status("Scan", f"Scan complete, found {len(networks)} networks")
-
-    return networks
-
-
-def enable_monitor_mode(interface: str) -> Tuple[bool, str]:
-    """
-    Enable monitor mode on the given interface using iw and ifconfig commands.
-
-    Args:
-        interface (str): Interface name.
-
-    Returns:
-        (success (bool), message (str))
-    """
-    try:
-        subprocess.run(['sudo', 'ifconfig', interface, 'down'], check=True)
-        subprocess.run(['sudo', 'iw', 'dev', interface, 'set', 'type', 'monitor'], check=True)
-        subprocess.run(['sudo', 'ifconfig', interface, 'up'], check=True)
-        return True, f"Interface {interface} set to monitor mode."
+        # Using 'iw' as it is the modern standard
+        result = subprocess.run(
+            ['sudo', 'iw', 'dev', interface, 'scan'],
+            capture_output=True, text=True, check=True
+        )
+        log.info("Network scan command executed successfully.")
+        networks = parse_iw_scan_output(result.stdout)
+        log.info(f"Scan parsed. Found {len(networks)} networks.")
+        return networks
     except subprocess.CalledProcessError as e:
-        return False, f"Failed to enable monitor mode: {e}"
-    except Exception as e:
-        return False, f"Unexpected error: {e}"
-
-
-def disable_monitor_mode(interface: str) -> Tuple[bool, str]:
-    """
-    Disable monitor mode on the given interface (set to managed).
-
-    Args:
-        interface (str): Interface name.
-
-    Returns:
-        (success (bool), message (str))
-    """
-    try:
-        subprocess.run(['sudo', 'ifconfig', interface, 'down'], check=True)
-        subprocess.run(['sudo', 'iw', 'dev', interface, 'set', 'type', 'managed'], check=True)
-        subprocess.run(['sudo', 'ifconfig', interface, 'up'], check=True)
-        return True, f"Interface {interface} set to managed mode."
-    except subprocess.CalledProcessError as e:
-        return False, f"Failed to disable monitor mode: {e}"
-    except Exception as e:
-        return False, f"Unexpected error: {e}"
+        log.error(f"Network scan failed on '{interface}'. Is it in monitor mode? Error: {e.stdout} {e.stderr}")
+        return []
+    except FileNotFoundError:
+        log.error("Command 'iw' or 'sudo' not found. Please ensure wireless tools are installed.")
+        return []

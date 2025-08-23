@@ -1,5 +1,3 @@
-
-
 import sys
 from utils.logger import log
 from gui.main_window import start_gui
