@@ -1,6 +1,5 @@
 # sniffguard/utils/config.py
 
-# Configuration settings can be added here
 APP_TITLE = "SniffGu@rd - Wireless Security Tool"
 APP_GEOMETRY = "800x600"
 

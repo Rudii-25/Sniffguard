@@ -46,5 +46,5 @@ def setup_logger():
 
     return logger
 
-# Initialize the logger globally
+
 log = setup_logger()
