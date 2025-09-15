@@ -4,10 +4,11 @@ import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QComboBox, QTextEdit, QLabel, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView
+    QHeaderView, QAbstractItemView, QProgressBar, QMessageBox, QCheckBox,
+    QSpinBox, QGroupBox, QInputDialog
 )
-from PyQt6.QtGui import QFont, QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QColor, QMovie
+from PyQt6.QtCore import Qt, QTimer
 
 from utils.logger import log
 from utils.config import APP_TITLE
@@ -15,15 +16,20 @@ from core.OS_detect import check_os
 from core.interface_detect import get_interfaces
 from core.monitor_mode import enable_monitor_mode, disable_monitor_mode
 from threads.scan_thread import ScanThread
+from threads.network_monitor_thread import NetworkMonitorThread
+from core.deauth_attack import launch_deauth_attack, stop_deauth_attack, is_attack_running
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.is_linux = check_os()
         self.scan_thread = None
+        self.monitor_thread = None
         self.monitor_interface = None
-        self.realtime_monitor = None
+        
+        # Progress and status tracking
         self.is_scanning = False
+        self.is_monitoring = False
         
         self.init_ui()
         self.apply_styles() 
@@ -46,20 +52,39 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(10, 10, 10, 10); main_layout.setSpacing(8)
+        # Control Panel
         control_panel = QHBoxLayout(); control_panel.setSpacing(8)
         self.btn_detect_interfaces = QPushButton("Detect Interfaces")
         self.interface_combo = QComboBox()
         self.btn_toggle_monitor = QPushButton("Enable Monitor")
         self.btn_scan_networks = QPushButton("Start Scan")
-        self.btn_deauth_rogue = QPushButton("Deauth Rogue")
+        self.btn_continuous_monitor = QPushButton("Start Monitor")
         control_panel.addWidget(self.btn_detect_interfaces)
         control_panel.addWidget(QLabel("Interface:"))
         control_panel.addWidget(self.interface_combo, 1)
         control_panel.addSpacing(15)
         control_panel.addWidget(self.btn_toggle_monitor)
         control_panel.addWidget(self.btn_scan_networks)
-        control_panel.addWidget(self.btn_deauth_rogue)
+        control_panel.addWidget(self.btn_continuous_monitor)
         main_layout.addLayout(control_panel)
+        
+        # Progress Bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setFormat("Scanning... %p%")
+        main_layout.addWidget(self.progress_bar)
+        
+        # Attack Panel
+        attack_group = QGroupBox("Deauthentication Controls")
+        attack_layout = QHBoxLayout(attack_group)
+        self.btn_deauth_rogue = QPushButton("Deauth Selected")
+        self.btn_stop_attack = QPushButton("Stop Attack")
+        self.btn_stop_attack.setEnabled(False)
+        attack_layout.addWidget(QLabel("Target:"))
+        attack_layout.addWidget(self.btn_deauth_rogue)
+        attack_layout.addWidget(self.btn_stop_attack)
+        attack_layout.addStretch()
+        main_layout.addWidget(attack_group)
         tables_layout = QVBoxLayout(); tables_layout.setSpacing(5)
         main_layout.addLayout(tables_layout, 1)
         tables_layout.addWidget(QLabel("All Detected Networks"))
@@ -94,7 +119,6 @@ class MainWindow(QMainWindow):
         self.blue_gradient = "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0d6efd, stop:1 #0dcaf0);"
         self.green_gradient = "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #198754, stop:1 #20c997);"
         self.orange_gradient = "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ffc107, stop:1 #fd7e14);"
-        self.purple_gradient = "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6f42c1, stop:1 #a855f7);"
         self.red_gradient = "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #dc3545, stop:1 #fd1440);"
         self.active_monitor_style = "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #fd7e14, stop:1 #ffc107); border: 1px solid #ffffffaa;"
         self.btn_detect_interfaces.setStyleSheet(self.base_button_style + self.blue_gradient)
@@ -113,11 +137,15 @@ class MainWindow(QMainWindow):
     def connect_signals(self):
         self.btn_detect_interfaces.clicked.connect(self.populate_interfaces)
         self.btn_toggle_monitor.clicked.connect(self.toggle_monitor_mode)
-        self.btn_scan_networks.clicked.connect(self.toggle_network_scan)
+        self.btn_scan_networks.clicked.connect(self.start_network_scan)
+        self.btn_continuous_monitor.clicked.connect(self.toggle_continuous_monitor)
         self.btn_deauth_rogue.clicked.connect(self.launch_deauth_attack)
+        self.btn_stop_attack.clicked.connect(self.stop_deauth_attack)
+        
+        # Table selection for deauth targeting
+        self.rogue_table.selectionModel().selectionChanged.connect(self.on_rogue_selection_changed)
 
     def post_init_setup(self):
-        # Enable deauth button only when conditions are met
         self.btn_deauth_rogue.setEnabled(False)
         if not self.is_linux:
             self.disable_all_controls()
@@ -189,68 +217,39 @@ class MainWindow(QMainWindow):
         self.populate_interfaces() # Refresh the dropdown with the new interface names
         self.update_monitor_button_state()
         
-    def toggle_network_scan(self):
-        """Toggle between start scan and stop scan with real-time monitoring"""
-        if not self.is_scanning:
-            self.start_continuous_scan()
-        else:
-            self.stop_continuous_scan()
-    
-    def start_continuous_scan(self):
-        """Start continuous scanning with real-time monitoring"""
-        # Check interface requirements
-        interface = self.interface_combo.currentText()
-        if not interface:
-            self.log_message("Scan FAILED: No interface selected.", "ERROR")
+    def start_network_scan(self):
+        if self.is_scanning:
+            self.log_message("Scan already in progress.", "WARNING")
             return
             
-        # Clear previous results
-        self.network_table.setRowCount(0)
-        self.rogue_table.setRowCount(0)
-        
+        if not self.monitor_interface:
+            self.show_error_dialog("Scan Failed", "Monitor mode is not active. Please enable monitor mode first.")
+            return
+            
+        # Check for Scapy availability
         try:
-            from core.realtime_monitor import RealTimeMonitor
-            
-            self.realtime_monitor = RealTimeMonitor(interface)
-            
-            # Connect signals for real-time updates
-            self.realtime_monitor.new_threat_detected.connect(self.on_new_threat_detected)
-            self.realtime_monitor.threat_level_changed.connect(self.on_threat_level_changed)
-            self.realtime_monitor.monitoring_stats_updated.connect(self.on_monitoring_stats_updated)
-            self.realtime_monitor.networks_updated.connect(self.on_networks_updated)
-            
-            # Configure monitoring for frequent updates
-            self.realtime_monitor.set_scan_interval(8)  # Scan every 8 seconds
-            self.realtime_monitor.set_threat_threshold(50)  # Alert on medium+ threats
-            
-            # Start monitoring
-            if self.realtime_monitor.start_monitoring():
-                self.is_scanning = True
-                self.btn_scan_networks.setText("Stop Scan")
-                self.btn_scan_networks.setStyleSheet(self.base_button_style + "background-color: #dc3545;")  # Red stop button
-                
-                self.log_message(f"🔍 Started continuous scanning on {interface}", "INFO")
-                self.log_message("📊 Real-time network monitoring active - networks will update every 8 seconds", "INFO")
-                self.log_message("🛑 Click 'Stop Scan' to end monitoring", "INFO")
-            else:
-                self.log_message("Failed to start continuous scanning", "ERROR")
-                
+            from core.scan_networks import SCAPY_AVAILABLE
+            if not SCAPY_AVAILABLE:
+                self.show_error_dialog(
+                    "Scapy Required",
+                    "Scapy is required for scanning. Please install it:\n\npip install scapy\n\nor\n\nsudo apt-get install python3-scapy"
+                )
+                return
         except ImportError:
-            self.log_message("Real-time monitoring module not available", "ERROR")
-        except Exception as e:
-            self.log_message(f"Error starting continuous scan: {e}", "ERROR")
-    
-    def stop_continuous_scan(self):
-        """Stop continuous scanning and real-time monitoring"""
-        if self.realtime_monitor:
-            self.realtime_monitor.stop_monitoring()
-            self.realtime_monitor = None
+            pass
+            
+        # Start scan with UI feedback
+        self.is_scanning = True
+        self._update_scan_ui(True)
+        self.log_message(f"Initiating network scan on {self.monitor_interface}...", "INFO")
+        self.network_table.setRowCount(0); self.rogue_table.setRowCount(0)
         
-        self.is_scanning = False
-        self.btn_scan_networks.setText("Start Scan")
-        self.btn_scan_networks.setStyleSheet(self.base_button_style + self.orange_gradient)
-        
-        self.log_message("🛑 Continuous scanning stopped", "INFO")
+        self.scan_thread = ScanThread(self.monitor_interface)
+        self.scan_thread.analysis_complete.connect(self.on_scan_complete)
+        self.scan_thread.rogue_aps_found.connect(self.populate_rogue_table)
+        self.scan_thread.error_occurred.connect(self.on_scan_error)
+        self.scan_thread.finished.connect(self.on_scan_finished)
+        self.scan_thread.start()
     
     def log_message(self, message, level="INFO"):
         # Correctly implemented, no change needed
@@ -274,15 +273,8 @@ class MainWindow(QMainWindow):
                 self.network_table.setItem(row, col, table_item)
                 
     def populate_rogue_table(self, rogue_aps):
-        # Enable deauth button when rogue APs are found
-        if rogue_aps and self.monitor_interface:
-            self.btn_deauth_rogue.setEnabled(True)
-            self.log_message(f"THREAT DETECTED! Found {len(rogue_aps)} high-risk rogue APs. Deauth enabled.", "CRITICAL")
-        else:
-            self.btn_deauth_rogue.setEnabled(False)
-            if rogue_aps:
-                self.log_message(f"Found {len(rogue_aps)} rogue APs, but monitor mode required for deauth.", "WARNING")
-        
+        # No change needed
+        self.log_message(f"THREAT DETECTED! Found {len(rogue_aps)} high-risk rogue APs.", "CRITICAL")
         self.rogue_table.setRowCount(len(rogue_aps))
         for row, net in enumerate(rogue_aps):
             items = [str(net.get(k, 'N/A')) for k in ['BSSID', 'SSID', 'Threat', 'Reasons']]
@@ -307,181 +299,161 @@ class MainWindow(QMainWindow):
         else:
             self.log_message("No interfaces found.", "ERROR")
     
+    def show_error_dialog(self, title, message):
+        """Show error dialog to user."""
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Critical)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.exec()
+        
+    def show_info_dialog(self, title, message):
+        """Show info dialog to user."""
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Information)
+        msg_box.setWindowTitle(title)
+        msg_box.setText(message)
+        msg_box.exec()
+        
+    def _update_scan_ui(self, scanning):
+        """Update UI elements during scanning."""
+        if scanning:
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setRange(0, 0)  # Indeterminate progress
+            self.btn_scan_networks.setText("Scanning...")
+            self.btn_scan_networks.setEnabled(False)
+            self.btn_toggle_monitor.setEnabled(False)
+        else:
+            self.progress_bar.setVisible(False)
+            self.btn_scan_networks.setText("Start Scan")
+            self.btn_scan_networks.setEnabled(True)
+            self.btn_toggle_monitor.setEnabled(True)
+            
+    def on_scan_complete(self, networks):
+        """Handle scan completion with networks data."""
+        self.populate_network_table(networks)
+        
+    def on_scan_error(self, error_msg):
+        """Handle scan errors."""
+        self.log_message(f"Scan error: {error_msg}", "ERROR")
+        
+    def on_scan_finished(self):
+        """Handle scan thread completion."""
+        self.is_scanning = False
+        self._update_scan_ui(False)
+        
+    def toggle_continuous_monitor(self):
+        """Toggle continuous network monitoring."""
+        if not self.monitor_interface:
+            self.show_error_dialog("Monitor Failed", "Monitor mode is not active. Please enable monitor mode first.")
+            return
+            
+        if self.is_monitoring:
+            # Stop monitoring
+            self.stop_continuous_monitor()
+        else:
+            # Start monitoring
+            self.start_continuous_monitor()
+            
+    def start_continuous_monitor(self):
+        """Start continuous network monitoring."""
+        try:
+            from core.scan_networks import SCAPY_AVAILABLE
+            if not SCAPY_AVAILABLE:
+                self.show_error_dialog(
+                    "Scapy Required",
+                    "Scapy is required for monitoring. Please install it first."
+                )
+                return
+        except ImportError:
+            pass
+            
+        self.monitor_thread = NetworkMonitorThread(self.monitor_interface, scan_interval=30)
+        self.monitor_thread.networks_updated.connect(self.populate_network_table)
+        self.monitor_thread.new_rogue_detected.connect(self.on_new_rogue_detected)
+        self.monitor_thread.monitoring_status.connect(lambda msg: self.log_message(msg, "INFO"))
+        self.monitor_thread.error_occurred.connect(lambda msg: self.log_message(msg, "ERROR"))
+        self.monitor_thread.start()
+        
+        self.is_monitoring = True
+        self.btn_continuous_monitor.setText("Stop Monitor")
+        self.log_message("Continuous monitoring started", "INFO")
+        
+    def stop_continuous_monitor(self):
+        """Stop continuous network monitoring."""
+        if self.monitor_thread:
+            self.monitor_thread.stop()
+            self.monitor_thread.wait(3000)  # Wait up to 3 seconds
+            
+        self.is_monitoring = False
+        self.btn_continuous_monitor.setText("Start Monitor")
+        self.log_message("Continuous monitoring stopped", "INFO")
+        
+    def on_new_rogue_detected(self, new_rogues):
+        """Handle detection of new rogue APs."""
+        for rogue in new_rogues:
+            ssid = rogue.get('SSID', 'Unknown')
+            threat = rogue.get('Threat', 'Unknown')
+            self.log_message(f"NEW ROGUE DETECTED: {ssid} - {threat} threat!", "CRITICAL")
+            
+        # Update rogue table
+        self.populate_rogue_table(new_rogues)
+        
+        # Show alert dialog
+        msg = f"Detected {len(new_rogues)} new rogue AP(s)!\n\nCheck the Rogue APs table for details."
+        self.show_info_dialog("Rogue AP Alert", msg)
+        
+    def on_rogue_selection_changed(self):
+        """Handle selection change in rogue table."""
+        selected_rows = self.rogue_table.selectionModel().selectedRows()
+        self.btn_deauth_rogue.setEnabled(len(selected_rows) > 0)
+        
     def launch_deauth_attack(self):
-        """Launch deauthentication attack against selected rogue APs"""
-        if False:
-            self.log_message("Deauth FAILED: Monitor mode is not active.", "ERROR")
+        """Launch deauth attack on selected rogue AP."""
+        selected_rows = self.rogue_table.selectionModel().selectedRows()
+        if not selected_rows:
+            self.show_error_dialog("No Target", "Please select a rogue AP to target.")
             return
-        
-        # Get selected row from rogue table
-        selected_items = self.rogue_table.selectedItems()
-        if not selected_items:
-            self.log_message("Please select a rogue AP from the table to target.", "WARNING")
+            
+        if not self.monitor_interface:
+            self.show_error_dialog("Attack Failed", "Monitor mode is not active.")
             return
+            
+        # Get target BSSID from selected row
+        row = selected_rows[0].row()
+        target_bssid = self.rogue_table.item(row, 0).text()  # BSSID column
+        target_ssid = self.rogue_table.item(row, 1).text()   # SSID column
         
-        # Get BSSID from selected row (first column)
-        selected_row = selected_items[0].row()
-        target_bssid = self.rogue_table.item(selected_row, 0).text()  # BSSID column
-        target_ssid = self.rogue_table.item(selected_row, 1).text()   # SSID column
-        
-        if target_bssid == 'N/A':
-            self.log_message("Invalid target BSSID selected.", "ERROR")
-            return
-        
-        # Confirm attack
-        from PyQt6.QtWidgets import QMessageBox
+        # Confirmation dialog with safety warning
         reply = QMessageBox.question(
-            self, 'Confirm Deauth Attack', 
-            f'Launch deauthentication attack against:\n'
-            f'SSID: {target_ssid}\n'
-            f'BSSID: {target_bssid}\n\n'
-            f'This will disconnect clients from the target AP.\n'
-            f'Continue?',
+            self,
+            "Confirm Deauth Attack",
+            f"⚠️ SECURITY TESTING ONLY ⚠️\n\n"
+            f"Target: {target_ssid} ({target_bssid})\n\n"
+            f"This will send deauthentication packets to disconnect clients from the rogue AP.\n\n"
+            f"⚠️ Only use this on networks you own or have explicit permission to test!\n\n"
+            f"Continue with attack?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            self.log_message(f"Launching deauth attack against {target_ssid} ({target_bssid})", "INFO")
-            
-            # Import and launch attack in a separate thread
-            from threads.deauth_thread import DeauthThread
-            self.deauth_thread = DeauthThread(self.monitor_interface, target_bssid)
-            self.deauth_thread.attack_complete.connect(self.on_deauth_complete)
-            self.deauth_thread.attack_progress.connect(self.on_deauth_progress)
-            self.deauth_thread.start()
-            
-            # Disable button during attack
-            self.btn_deauth_rogue.setEnabled(False)
-            self.btn_deauth_rogue.setText("Attacking...")
-    
-    def on_deauth_complete(self, success, message, stats):
-        """Handle completion of deauth attack"""
-        if success:
-            self.log_message(f"Deauth attack completed: {message}", "INFO")
-        else:
-            self.log_message(f"Deauth attack failed: {message}", "ERROR")
-        
-        # Re-enable button
-        self.btn_deauth_rogue.setEnabled(True)
-        self.btn_deauth_rogue.setText("Deauth Rogue")
-        
-        # Log statistics
-        if stats:
-            self.log_message(f"Attack stats: {stats.get('packets_sent', 0)} packets sent", "INFO")
-    
-    def on_deauth_progress(self, message):
-        """Handle progress updates from deauth attack"""
-        self.log_message(message, "INFO")
-    
-    def on_scan_finished(self):
-        """Handle scan thread completion"""
-        # Reset scan button
-        self.btn_scan_networks.setText("Start Scan")
-        self.btn_scan_networks.setEnabled(True)
-    
-    
-    def on_new_threat_detected(self, threat_data):
-        """Handle new threat detection from real-time monitor"""
-        ssid = threat_data.get('ssid', 'Unknown')
-        threat_level = threat_data.get('threat_level', 'Unknown')
-        threat_score = threat_data.get('threat_score', 0)
-        
-        self.log_message(f"⚠️ NEW THREAT: {ssid} - Level: {threat_level} (Score: {threat_score})", "CRITICAL")
-        
-        # Trigger a scan update to show the new threat in tables
-        self.refresh_network_tables()
-    
-    def on_threat_level_changed(self, bssid, old_level, new_level):
-        """Handle threat level changes"""
-        self.log_message(f"🔄 Threat level changed for {bssid}: {old_level} → {new_level}", "WARNING")
-        self.refresh_network_tables()
-    
-    def on_monitoring_stats_updated(self, stats):
-        """Handle monitoring statistics updates"""
-        scan_count = stats.get('scan_count', 0)
-        networks_seen = stats.get('networks_seen', 0)
-        current_threats = stats.get('current_threats', 0)
-        
-        # Update status in log every 10 scans to avoid spam
-        if scan_count % 10 == 0:
-            self.log_message(f"📊 Monitor Stats: {networks_seen} networks, {current_threats} active threats (Scan #{scan_count})", "INFO")
-    
-    def on_networks_updated(self, networks):
-        """Handle real-time network updates with live signal strength"""
-        if not networks:
-            return
-            
-        # Update the main network table with live data
-        self.log_message(f"📶 Live update: {len(networks)} networks detected with current signal strengths", "INFO")
-        
-        # Convert realtime monitor data to display format
-        display_networks = []
-        for network in networks:
-            display_net = {
-                'BSSID': network.get('BSSID', 'N/A'),
-                'SSID': network.get('SSID', '<Hidden>'),
-                'Signal': network.get('Signal', 'N/A'),
-                'Channel': network.get('Channel', 'N/A'),
-                'Vendor': network.get('Vendor', 'Unknown'),
-                'Score': network.get('Advanced_Threat_Score', 0),
-                'Threat': network.get('Advanced_Threat_Level', 'Low')
-            }
-            display_networks.append(display_net)
-        
-        # Update tables
-        self.populate_network_table(display_networks)
-        
-        # Update rogue table with current high-risk networks
-        high_risk_nets = [net for net in networks if net.get('Advanced_Threat_Score', 0) >= 50]
-        if high_risk_nets:
-            rogue_display = []
-            for net in high_risk_nets:
-                rogue_net = {
-                    'BSSID': net.get('BSSID', 'N/A'),
-                    'SSID': net.get('SSID', '<Hidden>'),
-                    'Threat': net.get('Advanced_Threat_Level', 'Unknown'),
-                    'Reasons': net.get('Advanced_Reasons', 'N/A')
-                }
-                rogue_display.append(rogue_net)
-            self.populate_rogue_table(rogue_display)
-    
-    def refresh_network_tables(self):
-        """Refresh network tables with current real-time data"""
-        if self.realtime_monitor:
-            try:
-                # Get current network data
-                current_threats = self.realtime_monitor.get_current_threats()
+            success, message = launch_deauth_attack(self.monitor_interface, target_bssid)
+            if success:
+                self.log_message(f"Deauth attack started on {target_ssid}", "WARNING")
+                self.btn_stop_attack.setEnabled(True)
+                self.btn_deauth_rogue.setEnabled(False)
+            else:
+                self.show_error_dialog("Attack Failed", message)
                 
-                if current_threats:
-                    # Update rogue table with current threats
-                    self.populate_rogue_table(current_threats)
-                    
-                    # Also update main network table if we have the monitor's network data
-                    # This would require extending the RealTimeMonitor to provide all network data
-                    
-            except Exception as e:
-                self.log_message(f"Error refreshing tables: {e}", "ERROR")
-        
-    def on_scan_error(self, error_message):
-        """Handle scan errors with helpful suggestions"""
-        self.log_message(f"Scan Error: {error_message}", "ERROR")
-        
-        # Provide helpful suggestions based on error type
-        if "Scapy" in error_message or "import" in error_message.lower():
-            self.log_message("💡 Solution: Install Scapy with: pip3 install scapy", "INFO")
-        elif "Permission" in error_message or "permission" in error_message.lower():
-            self.log_message("💡 Solution: Run with sudo privileges", "INFO")
-        elif "Interface" in error_message or "interface" in error_message.lower():
-            self.log_message("💡 Solution: Check if interface is in monitor mode", "INFO")
-        elif "timeout" in error_message.lower():
-            self.log_message("💡 Try scanning again - network conditions may have changed", "INFO")
-        else:
-            self.log_message("💡 Check logs for detailed error information", "INFO")
-            
-        # Reset scan button
-        self.btn_scan_networks.setText("Start Scan")
-        self.btn_scan_networks.setEnabled(True)
+    def stop_deauth_attack(self):
+        """Stop current deauth attack."""
+        if self.monitor_interface:
+            success = stop_deauth_attack(self.monitor_interface)
+            if success:
+                self.log_message("Deauth attack stopped", "INFO")
+            self.btn_stop_attack.setEnabled(False)
+            self.btn_deauth_rogue.setEnabled(True)
 
 def start_gui():
     app = QApplication(sys.argv)
