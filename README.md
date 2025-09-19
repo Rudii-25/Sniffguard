@@ -102,6 +102,10 @@ sudo ip link set wlan0 up
 sudo systemctl start NetworkManager
 ```
 
+* This is an Linux Based App and will Not Work on Windows.
+* ⚠️ Educational Use Only: This project is built for learning, research, and defensive security purposes.
+Please use it wisely and never for illegal or unethical activities.
+
 ## 📜 License
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
