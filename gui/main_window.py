@@ -399,7 +399,6 @@ class MainWindow(QMainWindow):
         # Update rogue table
         self.populate_rogue_table(new_rogues)
         
-        # Show alert dialog
         msg = f"Detected {len(new_rogues)} new rogue AP(s)!\n\nCheck the Rogue APs table for details."
         self.show_info_dialog("Rogue AP Alert", msg)
         
