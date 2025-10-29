@@ -25,8 +25,8 @@
 
 ## 📸 Preview
 <p align="center">
-  <img width="400" alt="dashboard-preview" src="https://github.com/user-attachments/assets/xxxxxxx" />
-  <img width="400" alt="scan-result" src="https://github.com/user-attachments/assets/yyyyyyy" />
+  <img width="400" alt="dashboard-preview" src="https://github.com/user-attachments/assets/e73ba00c-b5d1-448a-b267-2cb2141c8f0e" />
+
 </p>
 
 ---
