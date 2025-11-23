@@ -1,3 +1,5 @@
+# This software is licensed under the MIT License: https://github.com/Rudii-25/WiFi_Penetration 
+# Developer: Rudra Sharma - https://rudrasharma25.com 
 #!/usr/bin/env python3
 # comprehensive_scanner.py - Ultimate network scanner combining all methods
 

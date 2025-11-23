@@ -1,3 +1,5 @@
+# This software is licensed under the MIT License: https://github.com/Rudii-25/WiFi_Penetration 
+# Developer: Rudra Sharma - https://rudrasharma25.com 
 # sniffguard/core/threat_analyzer.py
 
 import requests
