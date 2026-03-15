@@ -2,7 +2,7 @@
 
 <!-- Animated SVG Banner -->
 <p align="center">
-  <img src="https://sniffguardsvgforreadme.netlify.app/" alt="SniffGuard Banner"/>
+  <img src="https://sniffguardsvgforreadme.netlify.app/sniffguard.svg" alt="SniffGuard Banner"/>
 </p>
 
 <br/>
