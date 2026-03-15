@@ -5,9 +5,7 @@ __pycache__/
 *.so
 
 # Distribution / packaging
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -41,6 +39,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+svg for readme host on netlify/
 
 # Environments
 .env
@@ -72,5 +71,4 @@ bun.lockb
 *~
 .DS_Store
 
-# Project specific
-Old_versions/
+
