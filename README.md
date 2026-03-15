@@ -1,45 +1,9 @@
 <div align="center">
 
 <!-- Animated SVG Banner -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 180" width="900" height="180">
-  <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f0c29;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#302b63;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#24243e;stop-opacity:1" />
-    </linearGradient>
-    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#00f2fe"/>
-      <stop offset="100%" style="stop-color:#4facfe"/>
-    </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="3.5" result="coloredBlur"/>
-      <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <style>
-      .pulse { animation: pulse 2s infinite; }
-      @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
-      .slide-in { animation: slideIn 1s ease forwards; }
-      @keyframes slideIn { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
-    </style>
-  </defs>
-  <rect width="900" height="180" rx="18" fill="url(#bgGrad)"/>
-  <!-- Animated scan line -->
-  <line x1="0" y1="90" x2="900" y2="90" stroke="#4facfe" stroke-width="0.5" opacity="0.3"/>
-  <!-- Icon: shield -->
-  <g transform="translate(60,40)" filter="url(#glow)">
-    <path d="M45,0 L90,20 L90,55 C90,80 70,95 45,105 C20,95 0,80 0,55 L0,20 Z" fill="none" stroke="#4facfe" stroke-width="2.5" class="pulse"/>
-    <text x="45" y="60" text-anchor="middle" font-size="30" fill="#00f2fe" font-family="monospace">👁</text>
-  </g>
-  <!-- Title -->
-  <text x="175" y="75" font-family="Segoe UI, sans-serif" font-size="46" font-weight="bold" fill="url(#textGrad)" filter="url(#glow)">SniffGu@rd</text>
-  <text x="177" y="105" font-family="Segoe UI, sans-serif" font-size="18" fill="#a0c4ff" letter-spacing="4">V 2 . 0  ·  A D V A N C E D  W I R E L E S S  S E C U R I T Y</text>
-  <!-- Bottom accent line -->
-  <rect x="175" y="120" width="500" height="2" rx="1" fill="url(#textGrad)" opacity="0.7"/>
-  <!-- Animated dot -->
-  <circle cx="880" cy="30" r="6" fill="#00f2fe" class="pulse" filter="url(#glow)"/>
-  <text x="866" y="55" font-family="monospace" font-size="10" fill="#4facfe">LIVE</text>
-</svg>
+<p align="center">
+  <img src="https://sniffguardsvgforreadme.netlify.app/" alt="SniffGuard Banner"/>
+</p>
 
 <br/>
 
