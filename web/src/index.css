@@ -1,0 +1,190 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=M+PLUS+1+Code:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 14% 4%;
+    --foreground: 240 25% 94%;
+
+    --card: 240 14% 6%;
+    --card-foreground: 240 25% 94%;
+
+    --popover: 240 14% 6%;
+    --popover-foreground: 240 25% 94%;
+
+    --primary: 207 100% 65%;
+    --primary-foreground: 240 14% 4%;
+
+    --secondary: 240 14% 10%;
+    --secondary-foreground: 240 25% 94%;
+
+    --muted: 240 14% 10%;
+    --muted-foreground: 217 100% 81%;
+
+    --accent: 180 100% 49%;
+    --accent-foreground: 240 14% 4%;
+
+    --destructive: 12 72% 64%;
+    --destructive-foreground: 240 25% 94%;
+
+    --border: 207 100% 65% / 0.15;
+    --input: 207 100% 65% / 0.15;
+    --ring: 207 100% 65% / 0.4;
+
+    --radius: 0.75rem;
+
+    --surface-1: 240 14% 6%;
+    --surface-2: 240 14% 10%;
+    --success: 163 100% 36%;
+    --warning: 45 97% 71%;
+    --danger: 12 72% 64%;
+
+    --sidebar-background: 240 14% 4%;
+    --sidebar-foreground: 240 25% 94%;
+    --sidebar-primary: 207 100% 65%;
+    --sidebar-primary-foreground: 240 14% 4%;
+    --sidebar-accent: 240 14% 10%;
+    --sidebar-accent-foreground: 240 25% 94%;
+    --sidebar-border: 207 100% 65% / 0.15;
+    --sidebar-ring: 207 100% 65% / 0.4;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'M PLUS 1 Code', monospace;
+    text-wrap: balance;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-feature-settings: 'ss01', 'ss08', 'liga', 'calt';
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(90deg, hsl(180 100% 49%), hsl(207 100% 65%));
+  }
+
+  .bg-gradient-primary {
+    background: linear-gradient(90deg, hsl(248 53% 10%), hsl(244 37% 28%), hsl(240 14% 20%));
+  }
+
+  .bg-gradient-accent {
+    background: linear-gradient(90deg, hsl(207 100% 65%), hsl(180 100% 49%));
+  }
+
+  .glass {
+    background: hsla(240, 14%, 10%, 0.5);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(207 100% 65% / 0.15);
+  }
+
+  .glass-card {
+    background: hsla(255, 255, 255, 0.04);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(207 100% 65% / 0.15);
+    border-radius: 12px;
+    transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .glass-card:hover {
+    border-color: hsl(207 100% 65% / 0.3);
+    box-shadow: 0 0 20px hsl(207 100% 65% / 0.1);
+  }
+
+  .surface-1 {
+    background: hsl(var(--surface-1));
+  }
+
+  .surface-2 {
+    background: hsl(var(--surface-2));
+  }
+
+  .glow-cyan {
+    filter: drop-shadow(0 0 8px hsl(180 100% 49% / 0.6));
+  }
+
+  .glow-blue {
+    filter: drop-shadow(0 0 8px hsl(207 100% 65% / 0.6));
+  }
+
+  .terminal-window {
+    background: hsl(240 20% 3%);
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px hsla(0, 0%, 100%, 0.05);
+  }
+
+  .scan-line {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, hsl(180 100% 49% / 0.4), transparent);
+    animation: scanLine 3s linear infinite;
+  }
+
+  @keyframes scanLine {
+    0% { top: 0; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { 
+      filter: drop-shadow(0 0 8px hsl(180 100% 49% / 0.4));
+      opacity: 1;
+    }
+    50% { 
+      filter: drop-shadow(0 0 20px hsl(180 100% 49% / 0.8));
+      opacity: 0.9;
+    }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(240 14% 4%);
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(207 100% 65% / 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(207 100% 65% / 0.5);
+}
+
+html {
+  scroll-behavior: smooth;
+}
