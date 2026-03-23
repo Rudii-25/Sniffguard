@@ -1,0 +1,6 @@
+PyQt6>=6.4.0
+scapy>=2.4.5
+requests>=2.28.0
+numpy>=1.21.0
+fixed the unknown channel problem and added band detection also and fixed the bug of 5g detection
+fixed the disbaled network manager issue and fixed the file management
