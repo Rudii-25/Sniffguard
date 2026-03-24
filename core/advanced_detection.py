@@ -1,7 +1,5 @@
-# This software is licensed under the MIT License: https://github.com/Rudii-25/WiFi_Penetration 
-# Developer: Rudra Sharma - https://rudrasharma25.com 
-# sniffguard/core/genuine_rogue_detector.py
-# GENUINE ROGUE AP DETECTION - NO NAME-BASED FALSE POSITIVES
+# sniffguard/core/advanced_detection.py
+# ADVANCED THREAT DETECTION - TECHNICAL ANALYSIS ONLY
 
 import numpy as np
 import time

@@ -1,5 +1,3 @@
-# This software is licensed under the MIT License: https://github.com/Rudii-25/WiFi_Penetration 
-# Developer: Rudra Sharma - https://rudrasharma25.com 
 #!/usr/bin/env python3
 # comprehensive_scanner.py - Ultimate network scanner combining all methods
 
@@ -68,19 +66,55 @@ class ComprehensiveNetworkScanner:
         
         final_networks = list(all_networks.values())
         
-        # Add vendor information to all networks
+        # Add vendor information to all networks (fast mode for real-time scanning)
         log.info("Looking up vendor information...")
+        
+        # Extract all BSSIDs that need vendor lookup
+        bssids_to_lookup = []
         for network in final_networks:
             bssid = network.get('BSSID')
             if bssid and network.get('Vendor', 'Unknown') == 'Unknown':
-                vendor = vendor_lookup.get_vendor(bssid)
-                network['Vendor'] = vendor
+                bssids_to_lookup.append(bssid)
         
-        # Log detailed results for debugging
+        if bssids_to_lookup:
+            # Fast bulk lookup using cache and offline database only
+            vendor_results = vendor_lookup.bulk_lookup(bssids_to_lookup, fast_mode=True)
+            
+            # Apply results to networks
+            for network in final_networks:
+                bssid = network.get('BSSID')
+                if bssid in vendor_results:
+                    network['Vendor'] = vendor_results[bssid]
+        
+        log.info(f"Vendor lookup complete for {len(bssids_to_lookup)} networks")
+        
+        # Add band information to all networks
+        for network in final_networks:
+            channel = network.get('Channel', 'N/A')
+            if channel and channel.isdigit():
+                ch_num = int(channel)
+                if 1 <= ch_num <= 14:
+                    network['Band'] = '2.4GHz'
+                elif 36 <= ch_num <= 165:
+                    network['Band'] = '5GHz'
+                elif 1 <= ch_num <= 6:
+                    network['Band'] = '6GHz'  # Future 6GHz support
+                else:
+                    network['Band'] = 'Unknown'
+            else:
+                network['Band'] = 'Unknown'
+        
+        # Log detailed results for debugging - SHOW ALL NETWORKS
         log.info(f"Comprehensive scan complete: {len(final_networks)} unique networks found")
         if final_networks:
-            for i, net in enumerate(final_networks[:5], 1):  # Log first 5 networks
-                log.info(f"  {i}. {net.get('SSID', 'Hidden')} ({net.get('BSSID', 'Unknown')}) - {net.get('Security', 'Unknown')}")
+            # Show more networks in logs (first 15 instead of 5)
+            display_count = min(15, len(final_networks))
+            for i, net in enumerate(final_networks[:display_count], 1):
+                band = net.get('Band', 'Unknown')
+                log.info(f"  {i}. {net.get('SSID', 'Hidden')} ({net.get('BSSID', 'Unknown')}) - {net.get('Security', 'Unknown')} - {band}")
+            
+            if len(final_networks) > display_count:
+                log.info(f"  ... and {len(final_networks) - display_count} more networks")
         else:
             log.warning("No networks found by any scanning method!")
             
@@ -394,7 +428,7 @@ class ComprehensiveNetworkScanner:
         return networks
     
     def _extract_network_from_packet(self, pkt):
-        """Extract network info from Scapy packet"""
+        """Extract network info from Scapy packet with enhanced 5GHz detection"""
         try:
             if not pkt.haslayer(Dot11):
                 return None
@@ -412,13 +446,38 @@ class ComprehensiveNetworkScanner:
                 'Channel': 'N/A'
             }
             
-            # Extract signal
+            # Extract signal from RadioTap
             if pkt.haslayer(RadioTap):
                 rt = pkt[RadioTap]
                 if hasattr(rt, 'dBm_AntSignal'):
                     network['Signal'] = str(rt.dBm_AntSignal)
+                
+                # Try to extract channel from RadioTap frequency field
+                if hasattr(rt, 'Channel'):
+                    freq = rt.Channel
+                    # Convert frequency to channel number
+                    if 2412 <= freq <= 2484:  # 2.4GHz
+                        channel = int((freq - 2412) / 5) + 1
+                        if freq == 2484:  # Channel 14
+                            channel = 14
+                        network['Channel'] = str(channel)
+                    elif 5170 <= freq <= 5825:  # 5GHz
+                        # 5GHz channel calculation
+                        if freq < 5000:
+                            pass  # Invalid
+                        elif freq == 5170:
+                            channel = 34
+                        elif freq <= 5320:
+                            channel = int((freq - 5000) / 5)
+                        elif freq <= 5700:
+                            channel = int((freq - 5000) / 5)
+                        elif freq <= 5825:
+                            channel = int((freq - 5000) / 5)
+                        else:
+                            channel = int((freq - 5000) / 5)
+                        network['Channel'] = str(channel)
             
-            # Extract SSID and other info from IEs
+            # Extract SSID and other info from Information Elements
             if pkt.haslayer(Dot11Elt):
                 elt = pkt[Dot11Elt]
                 while elt:
@@ -429,12 +488,41 @@ class ComprehensiveNetworkScanner:
                                 network['SSID'] = ssid
                         except:
                             pass
-                    elif elt.ID == 3 and len(elt.info) == 1:  # Channel
-                        network['Channel'] = str(elt.info[0])
-                    elif elt.ID == 48:  # RSN
+                    elif elt.ID == 3 and len(elt.info) == 1:  # DS Parameter (Channel)
+                        # This is typically for 2.4GHz networks
+                        channel_from_ds = elt.info[0]
+                        if 1 <= channel_from_ds <= 14:
+                            network['Channel'] = str(channel_from_ds)
+                    elif elt.ID == 61 and len(elt.info) >= 1:  # HT Operation (Channel)
+                        # This can contain primary channel info for both bands
+                        primary_channel = elt.info[0]
+                        if primary_channel > 0:
+                            network['Channel'] = str(primary_channel)
+                    elif elt.ID == 48:  # RSN Information Element
                         network['Security'] = 'WPA2/WPA3'
+                    elif elt.ID == 221:  # Vendor Specific (might contain WPA)
+                        # Check for WPA OUI
+                        if len(elt.info) >= 4 and elt.info[:4] == b'\x00P\xf2\x01':
+                            network['Security'] = 'WPA/WPA2'
                     
                     elt = elt.payload.getlayer(Dot11Elt) if elt.payload else None
+            
+            # If we still don't have channel info, try to derive it from current interface frequency
+            if network['Channel'] == 'N/A':
+                try:
+                    # Get current interface frequency
+                    result = subprocess.run(
+                        ['iw', 'dev', self.interface, 'info'],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    if result.returncode == 0:
+                        freq_match = re.search(r'channel (\d+) \((\d+) MHz\)', result.stdout)
+                        if freq_match:
+                            current_channel = freq_match.group(1)
+                            # Use the interface's current channel as fallback
+                            network['Channel'] = current_channel
+                except Exception:
+                    pass
             
             return network
             
