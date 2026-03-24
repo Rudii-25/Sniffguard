@@ -1,5 +1,3 @@
-# This software is licensed under the MIT License: https://github.com/Rudii-25/WiFi_Penetration 
-# Developer: Rudra Sharma - https://rudrasharma25.com 
 # sniffguard/core/monitor_mode.py
 
 import subprocess
@@ -38,78 +36,118 @@ def _interface_exists(interface):
         return False
     return True
 
-def _manage_conflicting_processes(action="stop"):
-    """Stops or starts common network management services."""
-    services = ["NetworkManager", "wpa_supplicant"]
-    log.info(f"Attempting to '{action}' conflicting network services...")
+def _disconnect_interface_from_nm(interface):
+    """Disconnect specific interface from NetworkManager without stopping the service."""
+    log.info(f"Disconnecting {interface} from NetworkManager (preserving other connections)...")
+    
+    # First try to disconnect gracefully via nmcli
+    success, result = _run_command(['nmcli', 'device', 'disconnect', interface], check=False)
+    if success:
+        log.info(f"Successfully disconnected {interface} from NetworkManager")
+    else:
+        log.info(f"Interface {interface} may not be managed by NetworkManager or already disconnected")
+    
+    # Set the interface to unmanaged by NetworkManager temporarily
+    success, result = _run_command(['nmcli', 'device', 'set', interface, 'managed', 'no'], check=False)
+    if success:
+        log.info(f"Set {interface} to unmanaged by NetworkManager")
+    
+    return True
 
-    is_running_cmd = ['systemctl', 'is-active', '--quiet']
-    for service in services:
-        try:
-            subprocess.run([*is_running_cmd, service], check=True)
-            log.info(f"Service '{service}' is active. Proceeding with '{action}'.")
-            _run_command(['sudo', 'systemctl', action, service])
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            log.info(f"Service '{service}' not active or not found, skipping.")
+def _reconnect_interface_to_nm(interface):
+    """Reconnect specific interface to NetworkManager."""
+    log.info(f"Reconnecting {interface} to NetworkManager...")
+    
+    # Re-enable management by NetworkManager
+    success, result = _run_command(['nmcli', 'device', 'set', interface, 'managed', 'yes'], check=False)
+    if success:
+        log.info(f"Re-enabled NetworkManager management for {interface}")
+    
+    # Give NetworkManager time to recognize the interface
+    time.sleep(2)
+    
+    return True
 
 def enable_monitor_mode(interface):
-    """Enables monitor mode using a robust, multi-step process."""
+    """Enables monitor mode on specific interface while preserving NetworkManager for others."""
     if not _interface_exists(interface):
         return False
 
     log.info(f"--- [START] MONITOR MODE ACTIVATION: {interface} ---")
+    log.info("🌐 NetworkManager will remain active for other interfaces")
 
-    _manage_conflicting_processes("stop")
-    time.sleep(1)
+    # Only disconnect this specific interface from NetworkManager
+    _disconnect_interface_from_nm(interface)
+    time.sleep(2)
 
+    # Bring interface down
     if not _run_command(['sudo', 'ip', 'link', 'set', interface, 'down'])[0]:
+        log.error("Failed to bring interface down")
         return False
 
+    # Set to monitor mode
     if not _run_command(['sudo', 'iw', interface, 'set', 'type', 'monitor'])[0]:
         log.critical("HARDWARE/DRIVER ERROR: Could not set monitor mode. Card may be unsupported.")
+        # Try to reconnect to NetworkManager on failure
+        _reconnect_interface_to_nm(interface)
         return False
 
+    # Bring interface back up in monitor mode
     if not _run_command(['sudo', 'ip', 'link', 'set', interface, 'up'])[0]:
+        log.error("Failed to bring interface up in monitor mode")
         return False
 
+    # Verify monitor mode is active
     log.info("Verifying monitor mode status...")
-    time.sleep(1)
+    time.sleep(2)
     success, result = _run_command(['iw', 'dev', interface, 'info'])
     if success and "type monitor" in result.stdout:
         log.info(f"--- [SUCCESS] MONITOR MODE ACTIVE: {interface} ---")
+        log.info("🌐 Other network interfaces remain unaffected")
         return True
     else:
         log.critical(f"--- [FAIL] VERIFICATION FAILED: {interface} ---")
+        # Try to recover by reconnecting to NetworkManager
+        _reconnect_interface_to_nm(interface)
         return False
 
 def disable_monitor_mode(interface):
-    """Disables monitor mode and restores the interface to managed mode."""
+    """Disables monitor mode and restores the interface to managed mode without affecting other interfaces."""
     if not _interface_exists(interface):
         return False
 
     log.info(f"--- [START] MONITOR MODE DEACTIVATION: {interface} ---")
+    log.info("🌐 NetworkManager connections on other interfaces will remain active")
 
+    # Bring interface down
     if not _run_command(['sudo', 'ip', 'link', 'set', interface, 'down'])[0]:
+        log.error("Failed to bring interface down")
         return False
 
+    # Set back to managed mode
     if not _run_command(['sudo', 'iw', interface, 'set', 'type', 'managed'])[0]:
         log.error("Could not reset to managed mode. Manual intervention may be needed.")
         return False
 
+    # Bring interface back up
     if not _run_command(['sudo', 'ip', 'link', 'set', interface, 'up'])[0]:
+        log.error("Failed to bring interface up in managed mode")
         return False
 
-    log.info("Restarting network services to restore connectivity...")
-    _manage_conflicting_processes("start")
+    # Reconnect the interface to NetworkManager
+    log.info("Reconnecting interface to NetworkManager...")
+    _reconnect_interface_to_nm(interface)
+    
+    # Give NetworkManager time to manage the interface
+    time.sleep(3)
 
-    # Fallback recovery (force NM restart)
-    _run_command(['sudo', 'systemctl', 'restart', 'NetworkManager'], check=False)
-
+    # Verify managed mode is active
     log.info("Verifying managed mode status...")
-    time.sleep(1)
     success, result = _run_command(['iw', 'dev', interface, 'info'])
     if success and "type managed" in result.stdout:
-        log.info(f"--- [SUCCESS] MONITOR MODE DEACTIVATED & CONNECTIVITY RESTORED: {interface} ---")
+        log.info(f"--- [SUCCESS] MONITOR MODE DEACTIVATED: {interface} ---")
+        log.info("🌐 Interface restored to managed mode and reconnected to NetworkManager")
+        log.info("🌐 Other network interfaces remained unaffected")
         return True
     else:
         log.critical(f"--- [FAIL] VERIFICATION FAILED FOR MANAGED MODE: {interface} ---")
