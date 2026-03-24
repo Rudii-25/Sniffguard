@@ -1,5 +1,3 @@
-# This software is licensed under the MIT License: https://github.com/Rudii-25/WiFi_Penetration 
-# Developer: Rudra Sharma - https://rudrasharma25.com 
 # sniffguard/gui/main_window.py
 
 import sys
@@ -16,13 +14,11 @@ from utils.config import APP_TITLE
 from core.OS_detect import check_os
 from core.interface_detect import get_interfaces
 from core.monitor_mode import enable_monitor_mode, disable_monitor_mode
-from threads.scan_thread import ScanThread
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.is_linux = check_os()
-        self.scan_thread = None
         self.monitor_interface = None
         self.realtime_monitor = None
         self.is_scanning = False
@@ -65,7 +61,7 @@ class MainWindow(QMainWindow):
         tables_layout = QVBoxLayout(); tables_layout.setSpacing(5)
         main_layout.addLayout(tables_layout, 1)
         tables_layout.addWidget(QLabel("All Detected Networks"))
-        self.network_table = self.create_table(["BSSID", "SSID", "Signal", "Channel", "Vendor", "Score", "Threat"])
+        self.network_table = self.create_table(["BSSID", "SSID", "Signal", "Channel", "Band", "Vendor", "Score", "Threat"])
         tables_layout.addWidget(self.network_table)
         tables_layout.addWidget(QLabel("High-Risk Rogue APs"))
         self.rogue_table = self.create_table(["BSSID", "SSID", "Threat", "Reason"])
@@ -268,7 +264,7 @@ class MainWindow(QMainWindow):
         for row, net in enumerate(sorted(networks, key=lambda x: x['Score'], reverse=True)):
             threat = net.get('Threat', 'Low')
             color = threat_colors.get(threat)
-            items = [ str(net.get(k, 'N/A')) for k in ['BSSID', 'SSID', 'Signal', 'Channel', 'Vendor', 'Score', 'Threat'] ]
+            items = [ str(net.get(k, 'N/A')) for k in ['BSSID', 'SSID', 'Signal', 'Channel', 'Band', 'Vendor', 'Score', 'Threat'] ]
             for col, item in enumerate(items):
                 table_item = QTableWidgetItem(item)
                 table_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -425,6 +421,7 @@ class MainWindow(QMainWindow):
                 'SSID': network.get('SSID', '<Hidden>'),
                 'Signal': network.get('Signal', 'N/A'),
                 'Channel': network.get('Channel', 'N/A'),
+                'Band': network.get('Band', 'N/A'),
                 'Vendor': network.get('Vendor', 'Unknown'),
                 'Score': network.get('Advanced_Threat_Score', 0),
                 'Threat': network.get('Advanced_Threat_Level', 'Low')
