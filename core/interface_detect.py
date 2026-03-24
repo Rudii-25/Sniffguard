@@ -1,5 +1,3 @@
-# This software is licensed under the MIT License: https://github.com/Rudii-25/WiFi_Penetration 
-# Developer: Rudra Sharma - https://rudrasharma25.com 
 # sniffguard/core/interface_detect.py
 
 import subprocess
